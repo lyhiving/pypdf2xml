@@ -7,6 +7,7 @@ from pdfminer.converter import PDFPageAggregator
 from pdfminer.layout import LAParams, LTTextBox, LTTextLine, LTFigure, LTImage, LTTextLineHorizontal
 import sys
 import os
+import string
 from binascii import b2a_hex
 from operator import itemgetter
 
@@ -65,16 +66,19 @@ def _parse_pages (doc, images_folder):
     text_content = [] # a list of strings, each representing text collected from each page of the doc
     text_content.append('<pdf2xml>')
     for i, page in enumerate(doc.get_pages()):
-        text_content.append('<page number="%s">' % (i+1,))
+        
         interpreter.process_page(page)
         # receive the LTPage object for this page
         layout = device.get_result()
+        page_left = int(layout.bbox[0])
+        page_top = int(layout.bbox[1])
+        page_width = int(layout.bbox[2])
         page_height = int(layout.bbox[3])
+        text_content.append('<page l="%s" t="%s" w="%s" h="%s" number="%s">' % (page_left,page_top,page_width,page_height,(i+1)))
         # layout is an LTPage object which may contain child objects like LTTextBox, LTFigure, LTImage, etc.
         ret = parse_lt_objs(layout._objs, (i+1), images_folder, page_height)
         text_content.append(ret)
         text_content.append('</page>')
-
     text_content.append('</pdf2xml>')
     return text_content
 
@@ -113,10 +117,41 @@ def parse_lt_objs (lt_objs, page_number, images_folder, page_height, text=[]):
         # sort the page_text hash by the keys (x0,x1 values of the bbox),
         # which produces a top-down, left-to-right sequence of related columns
         a = k
-        pos = 'top="%s" left="%s" width="%s" height="%s"' % (page_height-int(a[1]), int(a[0]), int(a[2]-a[0]), int(a[3]-a[1]))
-        text_content.append('<text %s>%s</text>' % (pos, v))
-
+        pos = 'l="%s" t="%s" w="%s" h="%s"' % (int(a[0]), page_height-int(a[3]), int(a[2]-a[0]), int(a[3]-a[1]))
+        text_pos = '%s' % (position_fix(int(a[0]),int(a[2]-a[0]),int(a[3]-a[1]),v))
+        text_content.append('  <block %s>' % pos)
+        text_content.append('    <text %s p="%s">%s</text>' % (pos, text_pos,v))
+        text_content.append('  </block>')
     return '\n'.join(text_content)
+    
+
+def position_fix(left,width,height,string):
+    #text_pp = [left,width,height,string]
+    #string  for space split
+    strings = string.split(' ')
+    if len(strings)<=1:
+        return str(left)+','+str(width)
+    else:
+        text_p_dot = ''
+        stringlen = len(string)
+        per_word_width = width//stringlen
+        p_left = left
+        width_left = 0
+        width_per= 0
+        for i in range(len(strings)):
+            #return str(per_word_width)+' - '+ str(width)+' - '+str(stringlen)
+            width_left = p_left+width_per
+            width_per = per_word_width*len(strings[i])
+            if i==0:
+                text_p_dot = str(p_left)+','+str(width_per)
+            else:
+                p_left = width_left+per_word_width
+                p_dot =str(p_left)+','+str(width_per)
+                if width_per:
+                    text_p_dot = text_p_dot+','+p_dot
+        #text_p_dot = '*'.join(strings)
+    return str(text_p_dot)
+
 
 def to_bytestring (s, enc='utf-8'):
     """Convert the given unicode string to a bytestring, using the standard encoding,
