@@ -5,9 +5,7 @@ from pdfminer.pdfparser import PDFParser, PDFDocument, PDFNoOutlines
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 from pdfminer.converter import PDFPageAggregator
 from pdfminer.layout import LAParams, LTTextBox, LTTextLine, LTFigure, LTImage, LTTextLineHorizontal
-import sys
-import os
-import string
+import sys, string, os, math,re 
 from binascii import b2a_hex
 from operator import itemgetter
 
@@ -122,34 +120,76 @@ def parse_lt_objs (lt_objs, page_number, images_folder, page_height, text=[]):
         text_content.append('  <block %s>' % pos)
         text_content.append('    <text %s p="%s">%s</text>' % (pos, text_pos,v))
         text_content.append('  </block>')
-    return '\n'.join(text_content)
+    return '\n'.join(text_content)  
+    
     
 
-def position_fix(left,width,height,string):
-    #text_pp = [left,width,height,string]
-    #string  for space split
-    strings = string.split(' ')
+def chinese_count(s):
+    r = re.compile('[\x80-\xff]+')
+    cLen = 0
+    m = r.findall(s)
+    for chiness in m:
+        cLen = cLen + len(chiness)
+    return int(cLen//3)
+            
+def auto_width(s):
+    total_length = len(s)
+    cn_length = chinese_count(s)
+    less_length = total_length-cn_length*3
+    if cn_length==0:
+        return total_length
+    avl_p =2
+    if less_length/cn_length==0:
+        avl_p = 2.26
+    elif less_length/cn_length<0.3:
+        avl_p = 2.24
+    elif less_length/cn_length<0.5:
+        avl_p = 2.23
+    elif less_length/cn_length<0.8:
+        avl_p = 2.22
+    elif less_length/cn_length<=1:
+        avl_p = 2.2
+    elif less_length/cn_length>5:
+        avl_p = 1.2
+    elif less_length/cn_length>4:
+        avl_p = 1.4
+    elif less_length/cn_length>3:
+        avl_p = 1.6
+    elif less_length/cn_length>2:
+        avl_p = 1.8
+    elif less_length/cn_length>1:
+        avl_p = 2.18
+    width_length = int(avl_p*cn_length+less_length)
+    #print(s+"-->total_length:"+str(total_length)+'\n'+"-->cn_length:"+str(cn_length)+'\n'+"-->width_length:"+str(width_length)+'--------------------\n')
+    return width_length
+    
+def position_fix(left,width,height,strp):
+    ustrp = unicode(strp, "utf-8")
+    strp2 = strp.replace('     ','\n\n\n\n\n\n').replace(' 　　','\n\n\n\n').replace('　　','\n\n\n').replace('　','\n\n').replace(' ','\n')
+    strings = strp2.split('\n')
     if len(strings)<=1:
         return str(left)+','+str(width)
     else:
         text_p_dot = ''
-        stringlen = len(string)
-        per_word_width = width//stringlen
+        string_width = auto_width(strp)
+        per_word_width = int(width//string_width)
         p_left = left
         width_left = 0
         width_per= 0
         for i in range(len(strings)):
-            #return str(per_word_width)+' - '+ str(width)+' - '+str(stringlen)
             width_left = p_left+width_per
-            width_per = per_word_width*len(strings[i])
+            width_per = int(per_word_width*max(1.2,auto_width(strings[i])))
             if i==0:
                 text_p_dot = str(p_left)+','+str(width_per)
             else:
-                p_left = width_left+per_word_width
-                p_dot =str(p_left)+','+str(width_per)
-                if width_per:
-                    text_p_dot = text_p_dot+','+p_dot
-        #text_p_dot = '*'.join(strings)
+                if strings[i]=='':
+                    p_left = width_left+per_word_width
+                    #text_p_dot = text_p_dot+'@'+str(p_left)+'&'
+                else:
+                    p_left = width_left+per_word_width
+                    p_dot =str(p_left)+','+str(width_per)
+                    if width_per:
+                        text_p_dot = text_p_dot+','+p_dot
     return str(text_p_dot)
 
 
